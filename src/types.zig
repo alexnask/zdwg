@@ -2,9 +2,6 @@ const std = @import("std");
 
 // Everything is little endian.
 // TODO: Any exceptions?
-// TODO: Small buffer optimization for byte slice/array values?
-
-// TODO: Ideally these will automatically generate parsers. (from flag, length, value field knowledge)
 
 pub const ThreeBits = struct {
     value: u3,

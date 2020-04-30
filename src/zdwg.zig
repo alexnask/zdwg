@@ -50,8 +50,8 @@ fn skipBytes(comptime n: comptime_int, bitstream: var) !void {
     if ((try bitstream.read(buf[0..])) != n) return error.Malformed;
 }
 
-pub fn parse(in_stream: var) !void {
-    var bitstream = std.io.bitInStream(std.builtin.Endian.Little, in_stream);
+pub fn parse(buf: []const u8) !void {
+    var bitstream = std.io.bitInStream(std.builtin.Endian.Little, std.io.fixedBufferStream(buf).inStream());
 
     std.debug.warn("\nHeader struct size: {} bytes\n\n\n", .{@sizeOf(Header)});
 
@@ -75,9 +75,26 @@ pub fn parse(in_stream: var) !void {
     // if (!std.mem.eql(u8, decrypted_data.file_id[0..11], "AcFssFcAJMB")) return error.WrongDecryptedFileID;
 }
 
-test "Parse a file" {
-    const file = try std.fs.cwd().openFile("test.dwg", std.fs.File.OpenFlags{});
-    defer file.close();
+pub fn parseFile(path: []const u8, alloc: *std.mem.Allocator) !void {
+    var buf: []u8 = undefined;
 
-    try parse(file.inStream());
+    {
+        const file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+
+        const stat = try file.stat();
+        if (stat.size == 0) return error.EmptyFile;
+
+        buf = try alloc.alloc(u8, stat.size);
+        errdefer alloc.free(buf);
+
+        if ((try file.readAll(buf[0..])) != stat.size) return error.CouldNotReadFile;
+    }
+
+    defer alloc.free(buf);
+    try parse(buf);
+}
+
+test "Parse a file" {
+    try parseFile("test.dwg", std.heap.page_allocator);
 }
