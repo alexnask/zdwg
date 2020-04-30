@@ -6,7 +6,6 @@ const TypeInfo = std.builtin.TypeInfo;
 usingnamespace @import("header.zig");
 usingnamespace @import("types.zig");
 
-// TODO: Open issue, fix stdblib for comptime_int parseInteger/parseUnsigned
 fn parseUnsigned(comptime digits: []const u8) !comptime_int {
     var x: comptime_int = 0;
     for (digits) |c| {
@@ -21,7 +20,7 @@ fn parseUnsigned(comptime digits: []const u8) !comptime_int {
     return x;
 }
 
-fn parseFromFlag(comptime flag: []const u8, comptime ResType: type, bitstream: var) !ResType {
+inline fn parseFromFlag(comptime flag: []const u8, comptime ResType: type, bitstream: var) !ResType {
     // We have four cases here
 
     // We could have a u<N>, i<N> or f<N> flag
@@ -64,7 +63,7 @@ fn parseFromFlag(comptime flag: []const u8, comptime ResType: type, bitstream: v
     }
 }
 
-fn parsePart(comptime T: type, bitstream: var) !T {
+inline fn parsePart(comptime T: type, bitstream: var) !T {
     var res: T = undefined;
 
     if (comptime trait.isUnsignedInt(T)) {
@@ -114,16 +113,25 @@ fn parsePart(comptime T: type, bitstream: var) !T {
         const Integer = @TagType(T);
         res = @intToEnum(T, try parsePart(Integer, bitstream));
     } else {
-        // TODO: Add an enum case (like for Handle.Code)
+        // A "length" field indicates how many of value's elements to fill.
+        // TODO: "length" must also be before "value" in the struct, check it somehow.
+        const has_length = @hasField(T, "length");
         inline for (meta.fields(T)) |field| {
-            @field(res, field.name) = try parsePart(field.field_type, bitstream);
+            if (has_length and comptime std.mem.eql(u8, field.name, "value")) {
+                var i: usize = 0;
+                while (i < if (comptime trait.is(.Struct)(@TypeOf(res.length))) res.length.value else res.length) : (i += 1) {
+                    res.value[i] = try parsePart(meta.Child(field.field_type), bitstream);
+                }
+            } else {
+                @field(res, field.name) = try parsePart(field.field_type, bitstream);
+            }
         }
     }
 
     return res;
 }
 
-fn skipBytes(comptime n: comptime_int, bitstream: var) !void {
+inline fn skipBytes(comptime n: comptime_int, bitstream: var) !void {
     var buf: [n]u8 = undefined;
     if ((try bitstream.read(buf[0..])) != n) return error.Malformed;
 }
@@ -141,6 +149,7 @@ pub fn parse(buf: []const u8) !void {
     const decrypted_data = decryptHeaderEncryptedData(header.encrypted_data);
     // TODO: This segfaults (slicing the u8 array in the packed struct)
     // if (!std.mem.eql(u8, decrypted_data.file_id[0..11], "AcFssFcAJMB")) return error.WrongDecryptedFileID;
+    std.debug.warn("Handle: {}\n\n", .{try parsePart(Handle, &bitstream)});
 }
 
 pub fn parseFile(path: []const u8, alloc: *std.mem.Allocator) !void {

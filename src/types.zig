@@ -1,7 +1,6 @@
 const std = @import("std");
 
 // Everything is little endian.
-// TODO: Any exceptions?
 
 pub const ThreeBits = struct {
     value: u3,
@@ -41,8 +40,7 @@ pub const BitLong = struct {
 
 pub const BitLongLong = struct {
     length: ThreeBits,
-    // TODO: unsigned?
-    value: i56,
+    value: [7]u8,
 };
 
 pub const BitDouble = struct {
@@ -108,8 +106,8 @@ pub const Handle = struct {
     };
 
     code: Code,
-    counter: u4,
-    handle: [15]u8,
+    length: u4,
+    value: [15]u8,
 };
 
 pub const VariableText = struct {
