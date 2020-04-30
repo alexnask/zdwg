@@ -34,7 +34,6 @@ pub const BitLong = struct {
         i32 = 0b00,
         u8 = 0b01,
         @"0" = 0b10,
-        _, // Unused: this will be an error
     };
 
     value: i32,
@@ -51,7 +50,6 @@ pub const BitDouble = struct {
         f64 = 0b00,
         @"1" = 0b01,
         @"0" = 0b10,
-        _, // Unused: this will be an error
     };
 
     value: f64,
@@ -93,8 +91,7 @@ pub const ColorCMC = struct {
 pub const ObjectType = struct {
     pub const Flag = enum(u2) {
         u8 = 0b00,
-        @"u1 + 0x01F0" = 0b01,
-        u16 = 0b10,
+        @"+ u8 496" = 0b01,
         u16 = 0b10,
     };
 
