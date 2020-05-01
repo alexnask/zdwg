@@ -3,8 +3,10 @@ const meta = std.meta;
 const trait = meta.trait;
 const TypeInfo = std.builtin.TypeInfo;
 
-usingnamespace @import("header.zig");
 usingnamespace @import("types.zig");
+usingnamespace @import("header.zig");
+usingnamespace @import("sections.zig");
+usingnamespace @import("compression.zig");
 
 fn parseUnsigned(comptime digits: []const u8) !comptime_int {
     var x: comptime_int = 0;
@@ -39,7 +41,6 @@ inline fn parseFromFlag(comptime flag: []const u8, comptime ResType: type, bitst
     }
     // Or a literal flag.
     if (flag[0] >= '0' and flag[0] <= '9') {
-        // TODO: We could collide with a legitimate -1 value...
         const literal_value = parseUnsigned(flag) catch -1;
         // We can also assign to a struct with a 'value' field.
         if (comptime trait.is(.Struct)(ResType)) {
@@ -119,7 +120,12 @@ inline fn parsePart(comptime T: type, bitstream: var) !T {
         inline for (meta.fields(T)) |field| {
             if (has_length and comptime std.mem.eql(u8, field.name, "value")) {
                 var i: usize = 0;
-                while (i < if (comptime trait.is(.Struct)(@TypeOf(res.length))) res.length.value else res.length) : (i += 1) {
+                const length_val = if (comptime trait.is(.Struct)(@TypeOf(res.length)))
+                    res.length.value
+                else
+                    res.length;
+
+                while (i < length_val) : (i += 1) {
                     res.value[i] = try parsePart(meta.Child(field.field_type), bitstream);
                 }
             } else {
@@ -136,22 +142,64 @@ inline fn skipBytes(comptime n: comptime_int, bitstream: var) !void {
     if ((try bitstream.read(buf[0..])) != n) return error.Malformed;
 }
 
-pub fn parse(buf: []const u8) !void {
-    var bitstream = std.io.bitInStream(std.builtin.Endian.Little, std.io.fixedBufferStream(buf).inStream());
-
-    std.debug.warn("\nHeader struct size: {} bytes\n\n\n", .{@sizeOf(Header)});
-
-    const header = try parsePart(Header, &bitstream);
-    if (!std.mem.eql(u8, header.version_id[0..], "AC1027")) return error.UnsupportedVersion;
-
-    std.debug.warn("Header: {}\n\n", .{header});
-
-    const decrypted_data = decryptHeaderEncryptedData(header.encrypted_data);
-    // TODO: This segfaults (slicing the u8 array in the packed struct)
-    // if (!std.mem.eql(u8, decrypted_data.file_id[0..11], "AcFssFcAJMB")) return error.WrongDecryptedFileID;
-    std.debug.warn("Handle: {}\n\n", .{try parsePart(Handle, &bitstream)});
+inline fn jumpToBytePos(index: u64, bitstream: var) !void {
+    bitstream.alignToByte();
+    try bitstream.in_stream.context.seekTo(index);
 }
 
+// TODO: We may need a bit version
+inline fn jumpByBytes(offset: i64, bitstream: var) !void {
+    bitstream.alignToByte();
+    try bitstream.in_stream.context.seekTo(bitstream.in_stream.context.pos + offset);
+}
+
+inline fn getSlice(len: usize, bitstream: var) ![]const u8 {
+    const buf = bitstream.in_stream.context.buffer;
+    const pos = bitstream.in_stream.context.pos;
+    if (pos + len >= buf.len) return error.Malformed;
+    return buf[pos..][0..len];
+}
+
+inline fn assertByteAligned(bitstream: var) !void {
+    if (std.builtin.mode == .Debug) {
+        if (bitstream.bit_buffer != 0 or bitstream.bit_count != 0) return error.Malformed;
+    }
+}
+
+pub fn parse(buf: []const u8, alloc: *std.mem.Allocator) !void {
+    var bitstream = std.io.bitInStream(std.builtin.Endian.Little, std.io.fixedBufferStream(buf).inStream());
+
+    const header = try parsePart(Header, &bitstream);
+    if (!std.mem.eql(u8, &header.version_id, "AC1027")) return error.UnsupportedVersion;
+    if (!std.mem.eql(u8, &header.magic_end_seq, &header_magic_end_seq)) return error.Malformed;
+
+    std.debug.warn("\nHeader: {}\n\n", .{header});
+
+    const header_data = decryptHeaderData(header.encrypted_header_data);
+    std.debug.warn("Header decrypted data: {}\n\n", .{header_data});
+
+    // TODO: #5104
+    // if (!std.mem.eql(u8, &decrypted_data.file_id, "AcFssFcAJMB")) return error.WrongDecryptedFileID;
+
+    try jumpToBytePos(header_data.section_page_map_address + 0x100, &bitstream);
+
+    const section_page = try parsePart(SectionPage, &bitstream);
+    if (section_page.type != .section_page_map) return error.Malformed;
+    if (section_page.compression_type != 0x02) return error.Malformed;
+
+    std.debug.warn("Section page map: {}\n\n", .{section_page});
+
+    try assertByteAligned(bitstream);
+    const compressed_data = try getSlice(section_page.compressed_data_size, bitstream);
+
+    const decompressed_data = try decompress(compressed_data, section_page.decompressed_data_size, alloc);
+    defer alloc.free(decompressed_data);
+
+    std.debug.warn("Section page map data:\n{X}\n\n", .{decompressed_data});
+}
+
+// TODO: Return a DrawingFile struct.
+// TODO: Check CRC checksums.
 pub fn parseFile(path: []const u8, alloc: *std.mem.Allocator) !void {
     var buf: []u8 = undefined;
 
@@ -169,7 +217,7 @@ pub fn parseFile(path: []const u8, alloc: *std.mem.Allocator) !void {
     }
 
     defer alloc.free(buf);
-    try parse(buf);
+    try parse(buf, alloc);
 }
 
 test "Parse a file" {

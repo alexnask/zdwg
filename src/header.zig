@@ -12,9 +12,12 @@ pub const Header = struct {
     vba_project_address: u32,
     _unused4: [4]u8,
     _unused5: [84]u8,
-    encrypted_data: [108]u8,
-    magic_number_seq: [20]u8,
+    encrypted_header_data: [108]u8,
+    // TODO: Is this correct? Doc is confusing. (page 26 last 2 paragraphs)
+    magic_end_seq: [20]u8,
 };
+
+pub const header_magic_end_seq = [_]u8{ 0xF8, 0x46, 0x6A, 0x04, 0x96, 0x73, 0x0E, 0xD9, 0x16, 0x2F, 0x67, 0x68, 0xD4, 0xF7, 0x4A, 0x4A, 0xD0, 0x57, 0x68, 0x76 };
 
 const decryptionTable = block: {
     var seq: [108]u8 = undefined;
@@ -28,8 +31,8 @@ const decryptionTable = block: {
     break :block seq;
 };
 
-pub const DecryptedData = packed struct {
-    file_id: [12]u8,
+pub const HeaderData = packed struct {
+    file_id: [11:0]u8,
     _unused1: [12]u8,
     root_tree_node_gap: u32,
     lowermost_left_tree_node_gap: u32,
@@ -49,7 +52,7 @@ pub const DecryptedData = packed struct {
     crc: u32,
 };
 
-pub fn decryptHeaderEncryptedData(encrypted: [108]u8) DecryptedData {
+pub fn decryptHeaderData(encrypted: [108]u8) HeaderData {
     var res: [108]u8 = undefined;
 
     var i: usize = 0;
@@ -57,5 +60,5 @@ pub fn decryptHeaderEncryptedData(encrypted: [108]u8) DecryptedData {
         res[i] = encrypted[i] ^ decryptionTable[i];
     }
 
-    return @bitCast(DecryptedData, res);
+    return @bitCast(HeaderData, res);
 }
