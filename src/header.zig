@@ -13,7 +13,6 @@ pub const Header = struct {
     _unused4: [4]u8,
     _unused5: [84]u8,
     encrypted_header_data: [108]u8,
-    // TODO: Is this correct? Doc is confusing. (page 26 last 2 paragraphs)
     magic_end_seq: [20]u8,
 };
 

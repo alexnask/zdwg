@@ -89,7 +89,6 @@ pub fn decompress(comp_data: []const u8, decompressed_size: u32, alloc: *std.mem
                 try two_byte_offset(comp_data, &comp_pos, &comp_offset, &literal_count);
                 comp_offset += 0x3fff;
             },
-            // TODO: Check decomp_pos is at correct location?
             0x11 => {
                 if (decomp_pos != decompressed_size) return error.Malformed;
                 return data;
