@@ -8,6 +8,20 @@ usingnamespace @import("header.zig");
 usingnamespace @import("sections.zig");
 usingnamespace @import("compression.zig");
 
+// TODO: Move those to utils.zig or something
+fn structCast(comptime Res: type, arg: var) Res {
+    const InT = @TypeOf(arg);
+    if (comptime !trait.is(.Struct)(InT)) @compileError("Cannot struct cast from non struct type " ++ @typeName(InT));
+    var res: Res = undefined;
+
+    inline for (meta.fields(InT)) |field| {
+        if (!@hasField(Res, field.name)) @compileError("Target struct " ++ @typeName(Res) ++ " does not have a '" ++ field.name ++ "' field.");
+
+        @field(res, field.name) = @field(arg, field.name);
+    }
+    return res;
+}
+
 fn parseUnsigned(comptime digits: []const u8) !comptime_int {
     var x: comptime_int = 0;
     for (digits) |c| {
@@ -183,19 +197,61 @@ pub fn parse(buf: []const u8, alloc: *std.mem.Allocator) !void {
 
     try jumpToBytePos(header_data.section_page_map_address + 0x100, &bitstream);
 
-    const section_page = try parsePart(SectionPage, &bitstream);
-    if (section_page.type != .section_page_map) return error.Malformed;
-    if (section_page.compression_type != 0x02) return error.Malformed;
+    const section_page_map = try parsePart(SystemSection, &bitstream);
+    if (section_page_map.type != .section_page_map) return error.Malformed;
+    if (section_page_map.compression_type != 0x02) return error.Malformed;
 
-    std.debug.warn("Section page map: {}\n\n", .{section_page});
+    std.debug.warn("Section page map: {}\n\n", .{section_page_map});
 
     try assertByteAligned(bitstream);
-    const compressed_data = try getSlice(section_page.compressed_data_size, bitstream);
+    const compressed_data = try getSlice(section_page_map.compressed_data_size, bitstream);
 
-    const decompressed_data = try decompress(compressed_data, section_page.decompressed_data_size, alloc);
+    const decompressed_data = try decompress(compressed_data, section_page_map.decompressed_data_size, alloc);
     defer alloc.free(decompressed_data);
 
-    std.debug.warn("Section page map data:\n{X}\n\n", .{decompressed_data});
+    // std.debug.warn("Section page map data: {x}\n\n", .{decompressed_data});
+
+    var section_map_page: PageInfo = undefined;
+
+    // Parse the section page map decompressed data.
+    {
+        var section_page_map_bitstream = std.io.bitInStream(std.builtin.Endian.Little, std.io.fixedBufferStream(decompressed_data).inStream());
+        var address: u32 = 0x100;
+        var section_map_found: bool = false;
+
+        // Iterate over page infos, we only keep the section map one for now.
+        var i: u32 = 0;
+        while (i < section_page_map.decompressed_data_size) {
+            var page_info = structCast(PageInfo, try parsePart(struct { number: i32, size: u32 }, &section_page_map_bitstream));
+            i += 8;
+
+            page_info.address = address;
+
+            if (page_info.number < 0) {
+                try skipBytes(16, &section_page_map_bitstream);
+                i += 16;
+            }
+
+            if (page_info.number == header_data.section_map_id) {
+                section_map_found = true;
+                section_map_page = page_info;
+            }
+
+            std.debug.warn("{}\n", .{page_info});
+            address += page_info.size;
+        }
+
+        if (!section_map_found) return error.Malformed;
+    }
+
+    std.debug.warn("Section map page info: {}\n\n", .{section_map_page});
+
+    // TODO: Address seems to be wrong... (bigger than filesize)
+    // It appears that the first few page_infos are corrupted.
+    try jumpToBytePos(section_map_page.address, &bitstream);
+    const section_map = try parsePart(SystemSection, &bitstream);
+
+    std.debug.warn("Section map: {}\n\n", .{section_map});
 }
 
 // TODO: Return a DrawingFile struct.
@@ -221,5 +277,24 @@ pub fn parseFile(path: []const u8, alloc: *std.mem.Allocator) !void {
 }
 
 test "Parse a file" {
-    try parseFile("test.dwg", std.heap.page_allocator);
+    try parseFile("test2.dwg", std.heap.page_allocator);
 }
+
+// The 2013 format is based mostly on the 2010 format.
+
+// The file header, summary info, page map, section map, compression are the same as in R2004.
+
+// The bit coding is the same as in R2010.
+
+// Like the R2007 format, the data, strings and handles are separated in header and
+// objects sections. The changes in the Header section are minor (only 2 added fields).
+
+// A new data section was introduced, the data storage section (AcDb:AcDsPrototype_1b).
+// At this moment (December 2012), this sections contains information about Acis data (regions, solids).
+// See chapter 24 for more details about this section.
+
+// Note that at the point of writing (22 March 2013) known valid values for acad maintenance version are 6
+// and 8. The ODA currently writes value 8.
+
+// TODO: slice.*: [N]T
+// Can I simplify anything?

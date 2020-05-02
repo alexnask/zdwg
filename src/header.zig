@@ -18,18 +18,6 @@ pub const Header = struct {
 
 pub const header_magic_end_seq = [_]u8{ 0xF8, 0x46, 0x6A, 0x04, 0x96, 0x73, 0x0E, 0xD9, 0x16, 0x2F, 0x67, 0x68, 0xD4, 0xF7, 0x4A, 0x4A, 0xD0, 0x57, 0x68, 0x76 };
 
-const decryptionTable = block: {
-    var seq: [108]u8 = undefined;
-    var i = 108;
-    var seed: u32 = 1;
-    while (i > 0) : (i -= 1) {
-        seed *%= 0x0343fd;
-        seed +%= 0x269ec3;
-        seq[108 - i] = @truncate(u8, seed >> 0x10);
-    }
-    break :block seq;
-};
-
 pub const HeaderData = packed struct {
     file_id: [11:0]u8,
     _unused1: [12]u8,
@@ -49,6 +37,18 @@ pub const HeaderData = packed struct {
     section_page_array_size: u32,
     gap_array_size: u32,
     crc: u32,
+};
+
+const decryptionTable = block: {
+    var seq: [108]u8 = undefined;
+    var i = 108;
+    var seed: u32 = 1;
+    while (i > 0) : (i -= 1) {
+        seed *%= 0x0343fd;
+        seed +%= 0x269ec3;
+        seq[108 - i] = @truncate(u8, seed >> 0x10);
+    }
+    break :block seq;
 };
 
 pub fn decryptHeaderData(encrypted: [108]u8) HeaderData {
