@@ -125,7 +125,7 @@ pub fn decompress(comp_data: []const u8, decompressed_size: u32, alloc: *std.mem
 
         // Copy compressed data
         if (comp_bytes + decomp_pos > decompressed_size) return error.Malformed;
-        // TODO: Check this, we may not need to -1...
+
         std.mem.copy(u8, decomp_data[decomp_pos..][0..comp_bytes], decomp_data[decomp_pos - comp_offset - 1..][0..comp_bytes]);
         decomp_pos += comp_bytes;
 

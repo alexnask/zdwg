@@ -19,18 +19,3 @@ pub const PageInfo = struct {
     size: u32,
     address: u32,
 };
-// class dwgPageInfo {
-    // public:
-    //     dwgPageInfo(){}
-    //     dwgPageInfo(duint64 i, duint64 ad, duint32 sz){
-    //         Id=i; address=ad; size=sz;
-    //     }
-    //     ~dwgPageInfo(){}
-    //     duint64 Id;
-    //     duint64 address; //in file stream, for rd18, rd21
-    //     duint64 size; //in file stream, for rd18, rd21
-    //     duint64 dataSize; //for rd18, rd21
-    //     duint32 startOffset; //for rd18, rd21
-    //     duint64 cSize; //compresed page size, for rd21
-    //     duint64 uSize; //uncompresed page size, for rd21
-    // };
